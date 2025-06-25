@@ -195,6 +195,7 @@ void loop() {
                 airHumidity.c_str());
         
         gsm.sendPOSTRequest(buffer, SERVER_URL);
+        printer.println("Отправлено на сервер:" + buffer);
         
       } else {
         // если crc8 не равна той, что пришла в пакете
