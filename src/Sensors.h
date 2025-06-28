@@ -55,6 +55,6 @@ class Sensors
         }
 
         String getAirHumidiry(uint8_t* dataIn) {
-            return convertBytesToString(dataIn[21], dataIn[22], 100.0f, true);
+            return convertBytesToString(dataIn[21], dataIn[22], 10.0f, true);
         }
 };

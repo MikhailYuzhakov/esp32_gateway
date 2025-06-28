@@ -83,7 +83,7 @@ class GSM
 
     public:
         bool init() {
-            Serial2.begin(9600);  
+            Serial2.begin(9600);
             return checkModule() && attachGPRS();
         }
 

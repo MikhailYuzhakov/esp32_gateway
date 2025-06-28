@@ -91,24 +91,20 @@ class Transiever
          * Принимает пакет и записывает содержимое в переменную dataIn.
          * return сообщения об отладке в строковом типе.
          */
-        String recievePacket(uint8_t* dataIn) {
+        uint8_t recievePacket(uint8_t* dataIn) {
             uint8_t i = 0;
-            String result = "Приняты данные от агрозонда: ";
 
             int packetSize = LoRa.parsePacket();
-            result += packetSize;
             if (packetSize) {
                 while (LoRa.available())
                 {
                     dataIn[i] = LoRa.read();
-                    result += String(dataIn[i], HEX);
-                    result += " "; // Разделитель для удобства чтения
                     i++;
                 }
                 LoRa.receive();
             }
             
-            return result;
+            return packetSize;
         }
 
         boolean isHandshake(uint8_t firstByte) {
@@ -126,7 +122,14 @@ class Transiever
             LoRa.beginPacket();
             LoRa.write(dataOut, packetSize+1);
             LoRa.endPacket();
-            result += "Данные отправлены.";
+            result += "Отправлено байт: ";
+            result += packetSize;
+            result += " | Данные (HEX):";
+            for (uint8_t i = 0; i < packetSize; i++)
+            {
+                result += String(dataOut[i], HEX);
+                result += " ";
+            }
             return result;
         }
 };

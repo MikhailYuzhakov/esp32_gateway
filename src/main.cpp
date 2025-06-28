@@ -46,6 +46,14 @@ String convertIDToString() {
     return hexString;
 }
 
+void clearInputOutputBuffer() {
+  //очищаем буффер
+  for (uint8_t i = 0; i < MAX_PACKET_SIZE; i++) {
+    dataIn[i] = 0;
+    dataOut[i] = 0;
+  }
+}
+
 void setup() {
   printer.init(); //инициализация последовательного порта
 
@@ -88,7 +96,7 @@ void setup() {
       }
     }
 
-        //Инициализация FTP сервера (независимо от режима работы модуля wi-fi: станция или точка доступа)
+      //Инициализация FTP сервера (независимо от режима работы модуля wi-fi: станция или точка доступа)
       if (!fileSystem.ftpServerInit(hotspotConfig.getFtpLogin(), hotspotConfig.getFtpPass()))
         printer.println("Ftp server initialization failed!");
       else
@@ -108,18 +116,17 @@ void setup() {
       printer.println("Web server was started successfully");
 
       // этот блок будет в том месте, где не получилось запустить Wi-Fi
-      gsm.init();
+      if (gsm.init()) 
+        printer.println("SIM800L init ok.");
+
       // при инициализации сразу получаем дату и время от сервера
       String currentDateTime = gsm.sendPOSTRequest(DATETIME_REQUEST, SERVER_URL);
-      Serial.println(currentDateTime);
-      // записываем актуальные дату и время в часы внутри ESP32
-      rtcPtr->syncInternalRTCDateTime(currentDateTime);
-      uint8_t* dateTime = rtcPtr->getDateTime();
-      for (uint8_t i = 0; i < 6; i++)
-      {
-        Serial.print(dateTime[i], HEX);
-      }
-      Serial.println();
+
+      // записываем актуальные дату и время в часы внутри ESP32, отправляем повторный запрос, если время не получили
+      while (!rtcPtr->syncInternalRTCDateTime(currentDateTime))
+        currentDateTime = gsm.sendPOSTRequest(DATETIME_REQUEST, SERVER_URL);
+      
+      printer.printDateTime(rtcPtr->getDateTime());
 
       printer.println(transiever.init(hotspotConfig.getFrequency(), 
                                       hotspotConfig.getBandwidth(), 
@@ -131,21 +138,18 @@ void setup() {
 
 void loop() {
   fileSystem.ftpHandle();
-  transiever.recievePacket(dataIn);
+  uint8_t packetSize = transiever.recievePacket(dataIn); 
   
   if (transiever.isHandshake(dataIn[PROTOCOL_POS])) { // если первый байт сообщения 0x8F - рукопожатие
+    printer.printAgroprobeDataPacket(dataIn, packetSize, false);
+    uint8_t calculatedCrc8 = transiever.crc8_bitwise(dataIn, packetSize - 1);
 
-    Serial.println();
-    uint16_t numberOfNonZeroElements = printer.printAgroprobeDataPacket(dataIn, MAX_PACKET_SIZE);
-    printer.printAgroprobeID(dataIn);
-    uint8_t calculatedCrc8 = transiever.crc8_bitwise(dataIn, numberOfNonZeroElements-1);
-    printer.printCRC8(dataIn[numberOfNonZeroElements-1], calculatedCrc8);
+    printer.printCRC8(dataIn[packetSize - 1], calculatedCrc8);
 
-    if (calculatedCrc8 == dataIn[numberOfNonZeroElements-1]) {
+    if (calculatedCrc8 == dataIn[packetSize - 1]) {
       uint8_t ptr = 0;
-      Serial.println("Контрольная сумма верна, отправляем на зонд подтверждение рукопожатия.");
       // записываем в массив ответа протокол и ID зонда c [0;8] позиции
-      for (uint8_t i = 0; i < numberOfNonZeroElements-1; i++) {
+      for (uint8_t i = 0; i < packetSize - 1; i++) {
         dataOut[ptr] = dataIn[i];
         Serial.print(dataOut[ptr], HEX);
         ptr++;
@@ -164,27 +168,37 @@ void loop() {
       uint8_t dataOutCrc8 = transiever.crc8_bitwise(dataOut, ptr-1);
       dataOut[ptr] = dataOutCrc8;
       Serial.println("Ответ с контрольной суммой: ");
-      printer.printAgroprobeDataPacket(dataOut, MAX_PACKET_SIZE);
+      printer.printAgroprobeDataPacket(dataOut, packetSize, true);
       Serial.println(transiever.sendPacket(dataOut, ptr));
     } else {
       // если crc8 не равна той, что пришла в пакете
     }
   } else if (transiever.isDataPacket(dataIn[PROTOCOL_POS])) { // если первый байт сообщения 0x7F - пакет данных
-      uint16_t numberOfNonZeroElements = printer.printAgroprobeDataPacket(dataIn, MAX_PACKET_SIZE);
-      
-      uint8_t calculatedCrc8 = transiever.crc8_bitwise(dataIn, numberOfNonZeroElements-2);
-      printer.printCRC8(dataIn[numberOfNonZeroElements-1], calculatedCrc8);
+      printer.printAgroprobeDataPacket(dataIn, packetSize, false);
+      uint8_t calculatedCrc8 = transiever.crc8_bitwise(dataIn, packetSize - 2);
 
-      if (calculatedCrc8 == dataIn[numberOfNonZeroElements-1]) {
+      if (calculatedCrc8 == dataIn[packetSize - 1]) {
         char buffer[200];
         uint8_t ptr = 0;
-        Serial.println("Контрольная сумма верна, парсим данные.");
+        uint8_t* dateTime = rtcPtr->getDateTime();
+
         String sID = convertIDToString();
         String pressure = sensors.getPressure(dataIn);
         String airBmpTemperature = sensors.getBmpAirTemperature(dataIn);
         String airHtuTemperature = sensors.getHtuAirTemperature(dataIn);
         String airHumidity = sensors.getAirHumidiry(dataIn);
-        printer.println("Агрозонд ID: " + sID + ", bmp_p: " + pressure + ", bmp_t: " + airBmpTemperature + ", htu21_t: " + airHtuTemperature + ", htu21_h: " + airHumidity);
+    
+        // записываем в массив ответа протокол и ID зонда c [0;8] позиции
+        for (uint8_t i = 0; i < 9; i++) 
+          dataOut[ptr++] = dataIn[i];
+
+        for (uint8_t i = 0; i < 6; i++) 
+          dataOut[ptr++] = dateTime[i];
+
+        uint8_t dataOutCrc8 = transiever.crc8_bitwise(dataOut, ptr-1);
+        dataOut[ptr] = dataOutCrc8;
+
+        Serial.println(transiever.sendPacket(dataOut, ptr));
 
         // Безопасное формирование JSON
         snprintf(buffer, sizeof(buffer), 
@@ -194,15 +208,18 @@ void loop() {
                 pressure.c_str(), 
                 airHumidity.c_str());
         
-        gsm.sendPOSTRequest(buffer, SERVER_URL);
-        printer.println("Отправлено на сервер:" + buffer);
-        
+        Serial.print("Отправлен пакет данных на сервер: ");
+        printer.println(buffer);
+        String currentDateTime = gsm.sendPOSTRequest(buffer, SERVER_URL);
+
+        rtcPtr->syncInternalRTCDateTime(currentDateTime);
+        printer.printDateTime(rtcPtr->getDateTime());
+        Serial.println();
+
       } else {
         // если crc8 не равна той, что пришла в пакете
       }
   }
 
-  //очищаем буффер
-  for (uint8_t i = 0; i < MAX_PACKET_SIZE; i++)
-    dataIn[i] = 0;
+  clearInputOutputBuffer();
 }

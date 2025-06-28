@@ -22,7 +22,8 @@ class ConsolePrinter : public Printer
                 }
             }
             return count;
-        } 
+        }
+
     public:
         void init() {
             Serial.begin(BAUD_RATE);
@@ -41,17 +42,53 @@ class ConsolePrinter : public Printer
             Serial.println();
         }
 
-        uint16_t printAgroprobeDataPacket(uint8_t* dataIn, uint8_t maxPacketSize) {
-            uint16_t count = countNonZeroElements(dataIn, maxPacketSize);
-            Serial.print("Принято байт: ");
-            Serial.print(count);
+        void printDateTime(uint8_t* datetime) {
+            String currentDateTime = "Синхронизированы дата и время: ";
+
+            if (datetime[0] < 10)
+                currentDateTime += "0";
+            currentDateTime += String(datetime[0]);
+            currentDateTime += ".";
+
+            if (datetime[1] < 10)
+                currentDateTime += "0";
+            currentDateTime += String(datetime[1]);
+            currentDateTime += ".";
+
+            currentDateTime += "20";
+            currentDateTime += String(datetime[2]);
+            currentDateTime += " ";
+
+            if (datetime[3] < 10)
+                currentDateTime += "0";
+            currentDateTime += String(datetime[3]);
+            currentDateTime += ":";
+
+            if (datetime[4] < 10)
+                currentDateTime += "0";
+            currentDateTime += String(datetime[4]);
+            currentDateTime += ":";
+
+            if (datetime[5] < 10)
+                currentDateTime += "0";
+            currentDateTime += String(datetime[5]);
+
+            Serial.println(currentDateTime);
+        }
+
+        void printAgroprobeDataPacket(uint8_t* dataIn, uint8_t packetSize, bool isSend) {
+            if (isSend)
+                Serial.print("Отправлено байт: ");
+            else
+                Serial.print("Принято байт: ");
+            
+            Serial.print(packetSize);
             Serial.print(" | Данные (HEX): ");
-            for (uint8_t i = 0; i < count; i++) {
+            for (uint8_t i = 0; i < packetSize; i++) {
                 Serial.print(dataIn[i], HEX);
                 Serial.print(" ");
             }
             Serial.println();
-            return count;
         }
 
         void printCRC8(uint8_t crc8, uint8_t calculatedCrc8) {

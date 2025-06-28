@@ -31,33 +31,50 @@ public:
     /**
      * Получает строку с датой и временем, парсит и записывает в RTC
      */
-    void syncInternalRTCDateTime(String input) {
-        // Находим индекс начала и конца строки с датой и временем
-        int firstEnter = input.indexOf("\n"); //ищем первый знак переноса
-        int startIndex = input.indexOf("\n", firstEnter + 1); // Ищем второй знак переноса
-        int endIndex = input.indexOf("OK"); // Находим следующий символ новой строки
-
-        // Извлекаем строку с датой и временем
-        String datetimeStr = input.substring(startIndex, endIndex);
-
-        // Разделяем строку на дату и время
-        int spaceIndex = datetimeStr.indexOf(" ");
-        String dateStr = datetimeStr.substring(1, spaceIndex);
-        String timeStr = datetimeStr.substring(spaceIndex + 1);
-    
-        // Парсим дату
-        int year = dateStr.substring(0, 4).toInt();
-        int month = dateStr.substring(5, 7).toInt();
-        int day = dateStr.substring(8, 10).toInt();
-    
-        // Парсим время
-        int hours = timeStr.substring(0, 2).toInt();
-        int minutes = timeStr.substring(3, 5).toInt();
-        int seconds = timeStr.substring(6, 8).toInt();
+    bool syncInternalRTCDateTime(String input) {
+        // Проверяем минимальную структуру ответа
+        int firstNewline = input.indexOf('\n');
+        if (firstNewline == -1) return false;
         
+        int secondNewline = input.indexOf('\n', firstNewline + 1);
+        if (secondNewline == -1) return false;
+        
+        int okPos = input.indexOf("OK", secondNewline);
+        if (okPos == -1) return false;
+
+        // Извлекаем строку с датой между вторым переводом строки и OK
+        String datetimeStr = input.substring(secondNewline + 1, okPos);
+        datetimeStr.trim();
+
+        // Проверяем базовый формат (YYYY-MM-DD HH:MM:SS)
+        if (datetimeStr.length() < 19) return false;
+        
+        // Проверяем позиции разделителей
+        if (datetimeStr[4] != '-' || datetimeStr[7] != '-' || 
+            datetimeStr[10] != ' ' || datetimeStr[13] != ':' || 
+            datetimeStr[16] != ':') {
+            return false;
+        }
+
+        // Парсим компоненты даты и времени
+        int year = datetimeStr.substring(0, 4).toInt();
+        int month = datetimeStr.substring(5, 7).toInt();
+        int day = datetimeStr.substring(8, 10).toInt();
+        int hour = datetimeStr.substring(11, 13).toInt();
+        int minute = datetimeStr.substring(14, 16).toInt();
+        int second = datetimeStr.substring(17, 19).toInt();
+
+        // Проверяем валидность значений
+        if (year < 2023 || year > 2099 ||
+            month < 1 || month > 12 ||
+            day < 1 || day > 31 ||
+            hour > 23 || minute > 59 || second > 59) {
+            return false;
+        }
+
         // Устанавливаем время в RTC
-        rtc.setTime(seconds, minutes, hours, day, month, year);
-        Serial.println(rtc.getTime("%A, %B %d %Y %H:%M:%S"));
+        rtc.setTime(second, minute, hour, day, month, year);
+        return true;
     }
 
     uint8_t* getDateTime() {
